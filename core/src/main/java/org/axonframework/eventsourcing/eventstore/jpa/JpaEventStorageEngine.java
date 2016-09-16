@@ -103,15 +103,15 @@ public class JpaEventStorageEngine extends BatchingEventStorageEngine {
     @Override
     @SuppressWarnings("unchecked")
     protected List<? extends TrackedEventData<?>> fetchTrackedEvents(TrackingToken lastToken, int batchSize) {
-        Assert.isTrue(lastToken == null || lastToken instanceof GlobalIndexTrackingToken,
+        Assert.isTrue(lastToken == null || lastToken instanceof DefaultTrackingToken,
                       String.format("Token %s is of the wrong type", lastToken));
         return entityManager().createQuery(
                 "SELECT new org.axonframework.eventsourcing.eventstore.GenericTrackedDomainEventEntry(" +
-                        "e.globalIndex, e.type, e.aggregateIdentifier, e.sequenceNumber, " +
+                        "e.trackingToken, e.type, e.aggregateIdentifier, e.sequenceNumber, " +
                         "e.eventIdentifier, e.timeStamp, e.payloadType, " +
                         "e.payloadRevision, e.payload, e.metaData) " + "FROM " + domainEventEntryEntityName() + " e " +
-                        "WHERE e.globalIndex > :token " + "ORDER BY e.globalIndex ASC")
-                .setParameter("token", lastToken == null ? -1 : ((GlobalIndexTrackingToken) lastToken).getGlobalIndex())
+                        "WHERE e.trackingToken > :token " + "ORDER BY e.trackingToken ASC")
+                .setParameter("token", lastToken == null ? -1 : ((DefaultTrackingToken) lastToken).getIndex())
                 .setMaxResults(batchSize).getResultList();
     }
 
@@ -126,7 +126,7 @@ public class JpaEventStorageEngine extends BatchingEventStorageEngine {
                                                                    int batchSize) {
         return entityManager().createQuery(
                 "SELECT new org.axonframework.eventsourcing.eventstore.GenericTrackedDomainEventEntry(" +
-                        "e.globalIndex, e.type, e.aggregateIdentifier, e.sequenceNumber, " +
+                        "e.trackingToken, e.type, e.aggregateIdentifier, e.sequenceNumber, " +
                         "e.eventIdentifier, e.timeStamp, e.payloadType, " +
                         "e.payloadRevision, e.payload, e.metaData) " + "FROM " + domainEventEntryEntityName() + " e " +
                         "WHERE e.aggregateIdentifier = :id " + "AND e.sequenceNumber >= :seq " +

@@ -16,6 +16,7 @@ public class Oracle11EventTableFactory extends AbstractEventTableFactory {
     public PreparedStatement createDomainEventTable(Connection connection, EventSchema schema) throws SQLException {
         String sql = "CREATE TABLE " + schema.domainEventTable() + " (\n" +
                 schema.globalIndexColumn() + " NUMBER(19) NOT NULL,\n" +
+                schema.trackingTokenColumn() + " NUMBER(19) NOT NULL,\n" +
                 schema.aggregateIdentifierColumn() + " VARCHAR(255) NOT NULL,\n" +
                 schema.sequenceNumberColumn() + " NUMBER(19) NOT NULL,\n" +
                 schema.typeColumn() + " VARCHAR(255) NOT NULL,\n" +
@@ -29,6 +30,7 @@ public class Oracle11EventTableFactory extends AbstractEventTableFactory {
                 "UNIQUE (" + schema.aggregateIdentifierColumn() + ", " +
                 schema.sequenceNumberColumn() + "),\n" +
                 "UNIQUE (" + schema.eventIdentifierColumn() + ")\n" +
+                "UNIQUE (" + schema.trackingTokenColumn() + ")\n" +
                 ")";
         connection.prepareStatement(sql)
                 .execute();

@@ -35,8 +35,8 @@ public class DomainEventEntry extends AbstractTrackedDomainEventEntry<byte[]> {
      * Construct a new default domain event entry from a published domain event message to enable storing the event or
      * sending it to a remote location. The event payload and metadata will be serialized to a byte array.
      * <p>
-     * The given {@code serializer} will be used to serialize the payload and metadata in the given {@code eventMessage}.
-     * The type of the serialized data will be the same as the given {@code contentType}.
+     * The given {@code serializer} will be used to serialize the payload and metadata in the given {@code
+     * eventMessage}. The type of the serialized data will be the same as the given {@code contentType}.
      *
      * @param eventMessage The event message to convert to a serialized event entry
      * @param serializer   The serializer to convert the event

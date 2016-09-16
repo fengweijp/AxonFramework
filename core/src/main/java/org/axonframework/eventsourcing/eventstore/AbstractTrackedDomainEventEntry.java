@@ -19,10 +19,8 @@ package org.axonframework.eventsourcing.eventstore;
 import org.axonframework.eventsourcing.DomainEventMessage;
 import org.axonframework.serialization.Serializer;
 
-import javax.persistence.GeneratedValue;
-import javax.persistence.GenerationType;
-import javax.persistence.Id;
-import javax.persistence.MappedSuperclass;
+import javax.persistence.*;
+import java.util.Random;
 
 /**
  * Abstract base class of a serialized domain event that can be used by tracking event stores. Fields in this class
@@ -33,16 +31,21 @@ import javax.persistence.MappedSuperclass;
 @MappedSuperclass
 public abstract class AbstractTrackedDomainEventEntry<T> extends AbstractDomainEventEntry<T> implements TrackedEventData<T> {
 
+    private static final Random random = new Random();
+
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @SuppressWarnings("unused")
     private long globalIndex;
+    @Column(unique = true)
+    private long trackingToken;
 
     /**
      * Construct a new event entry from a published domain event message to enable storing the event or sending it to a
      * remote location.
      * <p>
-     * The given {@code serializer} will be used to serialize the payload and metadata in the given {@code eventMessage}.
-     * The type of the serialized data will be the same as the given {@code contentType}.
+     * The given {@code serializer} will be used to serialize the payload and metadata in the given {@code
+     * eventMessage}. The type of the serialized data will be the same as the given {@code contentType}.
      *
      * @param eventMessage The event message to convert to a serialized event entry
      * @param serializer   The serializer to convert the event
@@ -51,6 +54,7 @@ public abstract class AbstractTrackedDomainEventEntry<T> extends AbstractDomainE
     public AbstractTrackedDomainEventEntry(DomainEventMessage<?> eventMessage, Serializer serializer,
                                            Class<T> contentType) {
         super(eventMessage, serializer, contentType);
+        trackingToken = Math.negateExact(random.nextInt(Integer.MAX_VALUE));
     }
 
     /**
@@ -59,7 +63,7 @@ public abstract class AbstractTrackedDomainEventEntry<T> extends AbstractDomainE
      * @param type                The type of aggregate that published this event
      * @param aggregateIdentifier The identifier of the aggregate that published this event
      * @param sequenceNumber      The sequence number of the event in the aggregate
-     * @param globalIndex         The global sequence number of the event
+     * @param trackingToken       The global commit sequence number of the event. Can be used to track the event store.
      * @param eventIdentifier     The identifier of the event
      * @param timestamp           The time at which the event was originally created
      * @param payloadType         The fully qualified class name or alias of the event payload
@@ -67,12 +71,12 @@ public abstract class AbstractTrackedDomainEventEntry<T> extends AbstractDomainE
      * @param payload             The serialized payload
      * @param metaData            The serialized metadata
      */
-    public AbstractTrackedDomainEventEntry(long globalIndex, String eventIdentifier, Object timestamp,
+    public AbstractTrackedDomainEventEntry(long trackingToken, String eventIdentifier, Object timestamp,
                                            String payloadType, String payloadRevision, T payload, T metaData,
                                            String type, String aggregateIdentifier, long sequenceNumber) {
         super(type, aggregateIdentifier, sequenceNumber, eventIdentifier, timestamp, payloadType, payloadRevision,
               payload, metaData);
-        this.globalIndex = globalIndex;
+        this.trackingToken = trackingToken;
     }
 
     /**
@@ -83,7 +87,6 @@ public abstract class AbstractTrackedDomainEventEntry<T> extends AbstractDomainE
 
     @Override
     public TrackingToken trackingToken() {
-        return new GlobalIndexTrackingToken(globalIndex);
+        return new DefaultTrackingToken(trackingToken);
     }
-
 }

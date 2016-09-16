@@ -16,31 +16,34 @@ package org.axonframework.eventsourcing.eventstore;
 import java.util.Objects;
 
 /**
+ * Default implementation of a {@link TrackingToken} that uses the global commit sequence number of the event to
+ * determine tracking order.
+ *
  * @author Rene de Waele
  */
-public class GlobalIndexTrackingToken implements TrackingToken {
+public class DefaultTrackingToken implements TrackingToken {
 
-    private final long globalIndex;
+    private final long index;
 
-    public GlobalIndexTrackingToken(long globalIndex) {
-        this.globalIndex = globalIndex;
+    public DefaultTrackingToken(long index) {
+        this.index = index;
     }
 
     @Override
     public boolean isGuaranteedNext(TrackingToken otherToken) {
-        return ((GlobalIndexTrackingToken) otherToken).globalIndex - globalIndex == 1;
+        return ((DefaultTrackingToken) otherToken).index - index == 1;
     }
 
-    public long getGlobalIndex() {
-        return globalIndex;
+    public long getIndex() {
+        return index;
     }
 
-    public GlobalIndexTrackingToken offsetBy(int offset) {
-        return new GlobalIndexTrackingToken(globalIndex + offset);
+    public DefaultTrackingToken offsetBy(int offset) {
+        return new DefaultTrackingToken(index + offset);
     }
 
-    public GlobalIndexTrackingToken next() {
-        return new GlobalIndexTrackingToken(globalIndex + 1);
+    public DefaultTrackingToken next() {
+        return new DefaultTrackingToken(index + 1);
     }
 
     @Override
@@ -51,24 +54,22 @@ public class GlobalIndexTrackingToken implements TrackingToken {
         if (o == null || getClass() != o.getClass()) {
             return false;
         }
-        GlobalIndexTrackingToken that = (GlobalIndexTrackingToken) o;
-        return globalIndex == that.globalIndex;
+        DefaultTrackingToken that = (DefaultTrackingToken) o;
+        return index == that.index;
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(globalIndex);
+        return Objects.hash(index);
     }
 
     @Override
     public int compareTo(TrackingToken o) {
-        return Long.compare(globalIndex, ((GlobalIndexTrackingToken) o).globalIndex);
+        return Long.compare(index, ((DefaultTrackingToken) o).index);
     }
 
     @Override
     public String toString() {
-        return "IndexTrackingToken{" +
-                "globalIndex=" + globalIndex +
-                '}';
+        return "DefaultTrackingToken{" + "index=" + index + '}';
     }
 }

@@ -173,12 +173,12 @@ public class JdbcEventStorageEngine extends AbstractJdbcEventStorageEngine {
 
     @Override
     public PreparedStatement readEventData(Connection connection, TrackingToken lastToken) throws SQLException {
-        Assert.isTrue(lastToken == null || lastToken instanceof GlobalIndexTrackingToken,
+        Assert.isTrue(lastToken == null || lastToken instanceof DefaultTrackingToken,
                       String.format("Token [%s] is of the wrong type", lastToken));
         final String sql = "SELECT " + trackedEventFields() + " FROM " + schema.domainEventTable() + " WHERE " +
-                schema.globalIndexColumn() + " > ? ORDER BY " + schema.globalIndexColumn() + " ASC";
+                schema.trackingTokenColumn() + " > ? ORDER BY " + schema.trackingTokenColumn() + " ASC";
         PreparedStatement preparedStatement = connection.prepareStatement(sql);
-        preparedStatement.setLong(1, lastToken == null ? -1 : ((GlobalIndexTrackingToken) lastToken).getGlobalIndex());
+        preparedStatement.setLong(1, lastToken == null ? -1 : ((DefaultTrackingToken) lastToken).getIndex());
         return preparedStatement;
     }
 
@@ -198,7 +198,7 @@ public class JdbcEventStorageEngine extends AbstractJdbcEventStorageEngine {
 
     @Override
     public TrackedEventData<?> getTrackedEventData(ResultSet resultSet) throws SQLException {
-        return new GenericTrackedDomainEventEntry<>(resultSet.getLong(schema.globalIndexColumn()),
+        return new GenericTrackedDomainEventEntry<>(resultSet.getLong(schema.trackingTokenColumn()),
                                                     resultSet.getString(schema.typeColumn()),
                                                     resultSet.getString(schema.aggregateIdentifierColumn()),
                                                     resultSet.getLong(schema.sequenceNumberColumn()),
@@ -275,7 +275,7 @@ public class JdbcEventStorageEngine extends AbstractJdbcEventStorageEngine {
     }
 
     protected String trackedEventFields() {
-        return schema.globalIndexColumn() + ", " + domainEventFields();
+        return schema.trackingTokenColumn() + ", " + domainEventFields();
     }
 
     protected EventSchema schema() {

@@ -20,8 +20,8 @@ import org.axonframework.common.jpa.SimpleEntityManagerProvider;
 import org.axonframework.eventhandling.TrackedEventMessage;
 import org.axonframework.eventsourcing.DomainEventMessage;
 import org.axonframework.eventsourcing.eventstore.BatchingEventStorageEngine;
+import org.axonframework.eventsourcing.eventstore.DefaultTrackingToken;
 import org.axonframework.eventsourcing.eventstore.EmbeddedEventStore;
-import org.axonframework.eventsourcing.eventstore.GlobalIndexTrackingToken;
 import org.axonframework.eventsourcing.eventstore.TrackingEventStream;
 import org.axonframework.eventsourcing.eventstore.jpa.JpaEventStorageEngine;
 import org.axonframework.serialization.Serializer;
@@ -181,13 +181,13 @@ public class JpaStorageEngineInsertionReadOrderTest {
         long lastToken = -1;
         while (result.size() < eventCount) {
             List<? extends TrackedEventMessage<?>> batch =
-                    testSubject.readEvents(new GlobalIndexTrackingToken(lastToken), false).collect(Collectors.toList());
+                    testSubject.readEvents(new DefaultTrackingToken(lastToken), false).collect(Collectors.toList());
             for (TrackedEventMessage<?> message : batch) {
                 result.add(message);
                 logger.info(
                         message.getPayload() + " / " + ((DomainEventMessage<?>) message).getSequenceNumber() + " => " +
                                 message.trackingToken().toString());
-                lastToken = ((GlobalIndexTrackingToken) message.trackingToken()).getGlobalIndex();
+                lastToken = ((DefaultTrackingToken) message.trackingToken()).getIndex();
             }
         }
         return result;

@@ -16,9 +16,9 @@ package org.axonframework.eventsourcing.eventstore.inmemory;
 import org.axonframework.eventhandling.EventMessage;
 import org.axonframework.eventhandling.TrackedEventMessage;
 import org.axonframework.eventsourcing.DomainEventMessage;
+import org.axonframework.eventsourcing.eventstore.DefaultTrackingToken;
 import org.axonframework.eventsourcing.eventstore.DomainEventStream;
 import org.axonframework.eventsourcing.eventstore.EventStorageEngine;
-import org.axonframework.eventsourcing.eventstore.GlobalIndexTrackingToken;
 import org.axonframework.eventsourcing.eventstore.TrackingToken;
 
 import java.util.List;
@@ -45,7 +45,7 @@ public class InMemoryEventStorageEngine implements EventStorageEngine {
     @Override
     public void appendEvents(List<? extends EventMessage<?>> events) {
         synchronized (this.events) {
-            GlobalIndexTrackingToken trackingToken = nextTrackingToken();
+            DefaultTrackingToken trackingToken = nextTrackingToken();
             this.events.putAll(IntStream.range(0, events.size()).mapToObj(
                     i -> asTrackedEventMessage((EventMessage<?>) events.get(i), trackingToken.offsetBy(i))).collect(
                     Collectors.toMap(TrackedEventMessage::trackingToken, Function.identity())));
@@ -85,7 +85,7 @@ public class InMemoryEventStorageEngine implements EventStorageEngine {
         return Optional.ofNullable(snapshots.get(aggregateIdentifier));
     }
 
-    protected GlobalIndexTrackingToken nextTrackingToken() {
-        return events.isEmpty() ? new GlobalIndexTrackingToken(0) : ((GlobalIndexTrackingToken) events.lastKey()).next();
+    protected DefaultTrackingToken nextTrackingToken() {
+        return events.isEmpty() ? new DefaultTrackingToken(0) : ((DefaultTrackingToken) events.lastKey()).next();
     }
 }

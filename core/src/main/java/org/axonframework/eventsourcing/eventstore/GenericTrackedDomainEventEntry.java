@@ -24,7 +24,7 @@ public class GenericTrackedDomainEventEntry<T> extends AbstractTrackedDomainEven
     /**
      * Reconstruct an event entry from a stored object.
      *
-     * @param globalIndex         The global index of the event in the underlying storage
+     * @param trackingToken       The global commit sequence number of the event. Can be used to track the event store.
      * @param type                The type of aggregate that published this event
      * @param aggregateIdentifier The identifier of the aggregate that published this event
      * @param sequenceNumber      The sequence number of the event in the aggregate
@@ -35,10 +35,10 @@ public class GenericTrackedDomainEventEntry<T> extends AbstractTrackedDomainEven
      * @param payload             The serialized payload
      * @param metaData            The serialized metadata
      */
-    public GenericTrackedDomainEventEntry(long globalIndex, String type, String aggregateIdentifier,
+    public GenericTrackedDomainEventEntry(long trackingToken, String type, String aggregateIdentifier,
                                           long sequenceNumber, String eventIdentifier, Object timestamp,
                                           String payloadType, String payloadRevision, T payload, T metaData) {
-        super(globalIndex, eventIdentifier, timestamp, payloadType, payloadRevision, payload, metaData, type,
+        super(trackingToken, eventIdentifier, timestamp, payloadType, payloadRevision, payload, metaData, type,
               aggregateIdentifier, sequenceNumber);
     }
 }

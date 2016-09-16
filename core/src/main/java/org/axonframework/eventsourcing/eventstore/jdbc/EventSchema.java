@@ -14,13 +14,18 @@
 package org.axonframework.eventsourcing.eventstore.jdbc;
 
 /**
+ * Value object to configure the table and column names of event entries stored and fetched using JDBC.
+ *
  * @author Rene de Waele
  */
 public class EventSchema {
-    private final String domainEventTable, snapshotTable, globalIndexColumn, timestampColumn, eventIdentifierColumn,
-            aggregateIdentifierColumn, sequenceNumberColumn, typeColumn, payloadTypeColumn, payloadRevisionColumn,
-            payloadColumn, metaDataColumn;
+    private final String domainEventTable, snapshotTable, globalIndexColumn, trackingTokenColumn, timestampColumn,
+            eventIdentifierColumn, aggregateIdentifierColumn, sequenceNumberColumn, typeColumn, payloadTypeColumn,
+            payloadRevisionColumn, payloadColumn, metaDataColumn;
 
+    /**
+     * Initializes an EventSchema with default values.
+     */
     public EventSchema() {
         this(builder());
     }
@@ -29,6 +34,7 @@ public class EventSchema {
         domainEventTable = builder.domainEventTable;
         snapshotTable = builder.snapshotTable;
         globalIndexColumn = builder.globalIndexColumn;
+        trackingTokenColumn = builder.trackingTokenColumn;
         timestampColumn = builder.timestampColumn;
         eventIdentifierColumn = builder.eventIdentifierColumn;
         aggregateIdentifierColumn = builder.aggregateIdentifierColumn;
@@ -40,10 +46,20 @@ public class EventSchema {
         metaDataColumn = builder.metaDataColumn;
     }
 
+    /**
+     * Returns a new {@link Builder} for an EventSchema initialized with default values for table and column names.
+     *
+     * @return a new EventSchema builder
+     */
     public static Builder builder() {
         return new Builder();
     }
 
+    /**
+     * Returns the name of the domain event table.
+     *
+     * @return the domain event table name
+     */
     public String domainEventTable() {
         return domainEventTable;
     }
@@ -54,6 +70,10 @@ public class EventSchema {
 
     public String globalIndexColumn() {
         return globalIndexColumn;
+    }
+
+    public String trackingTokenColumn() {
+        return trackingTokenColumn;
     }
 
     public String timestampColumn() {
@@ -97,6 +117,7 @@ public class EventSchema {
         private String domainEventTable = "DomainEventEntry";
         private String snapshotTable = "SnapshotEventEntry";
         private String globalIndexColumn = "globalIndex";
+        private String trackingTokenColumn = "trackingToken";
         private String timestampColumn = "timeStamp";
         private String eventIdentifierColumn = "eventIdentifier";
         private String aggregateIdentifierColumn = "aggregateIdentifier";
@@ -119,6 +140,11 @@ public class EventSchema {
 
         public Builder withGlobalIndexColumn(String globalIndexColumn) {
             this.globalIndexColumn = globalIndexColumn;
+            return this;
+        }
+
+        public Builder withTrackingTokenColumn(String trackingTokenColumn) {
+            this.trackingTokenColumn = trackingTokenColumn;
             return this;
         }
 

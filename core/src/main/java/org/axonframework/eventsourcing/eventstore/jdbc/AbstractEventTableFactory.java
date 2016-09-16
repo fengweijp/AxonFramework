@@ -26,6 +26,7 @@ public abstract class AbstractEventTableFactory implements EventTableFactory {
                                                     EventSchema schema) throws SQLException {
         String sql = "CREATE TABLE IF NOT EXISTS " + schema.domainEventTable() + " (\n" +
                 schema.globalIndexColumn() + " " + idColumnType() + " NOT NULL,\n" +
+                schema.trackingTokenColumn() + " BIGINT NOT NULL,\n" +
                 schema.aggregateIdentifierColumn() + " VARCHAR(255) NOT NULL,\n" +
                 schema.sequenceNumberColumn() + " BIGINT NOT NULL,\n" +
                 schema.typeColumn() + " VARCHAR(255) NOT NULL,\n" +
@@ -39,6 +40,7 @@ public abstract class AbstractEventTableFactory implements EventTableFactory {
                 "UNIQUE (" + schema.aggregateIdentifierColumn() + ", " +
                 schema.sequenceNumberColumn()+ "),\n" +
                 "UNIQUE (" + schema.eventIdentifierColumn() + ")\n" +
+                "UNIQUE (" + schema.trackingTokenColumn() + ")\n" +
                 ")";
         return connection.prepareStatement(sql);
     }

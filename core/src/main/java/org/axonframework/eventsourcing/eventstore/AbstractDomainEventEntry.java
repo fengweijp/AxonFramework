@@ -32,7 +32,7 @@ public abstract class AbstractDomainEventEntry<T> extends AbstractEventEntry<T> 
     private String type;
     @Basic(optional = false)
     private String aggregateIdentifier;
-    @Basic(optional = false)
+    @Basic
     private long sequenceNumber;
 
     /**
