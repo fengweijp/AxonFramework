@@ -102,7 +102,7 @@ public class LegacyJpaEventStorageEngine extends JpaEventStorageEngine {
                                        TransactionManager transactionManager, Integer batchSize,
                                        EntityManagerProvider entityManagerProvider) {
         super(serializer, upcasterChain, persistenceExceptionResolver, transactionManager, batchSize,
-              entityManagerProvider);
+              entityManagerProvider, null);
     }
 
     @Override
@@ -137,17 +137,6 @@ public class LegacyJpaEventStorageEngine extends JpaEventStorageEngine {
     }
 
     @Override
-    protected TrackingToken getTokenForGapDetection(TrackingToken token) {
-        if (token == null) {
-            return null;
-        }
-        Assert.isTrue(token instanceof LegacyTrackingToken, String.format("Token %s is of the wrong type", token));
-        LegacyTrackingToken legacyToken = (LegacyTrackingToken) token;
-        return new LegacyTrackingToken(legacyToken.getTimestamp(), legacyToken.getAggregateIdentifier(),
-                                       legacyToken.getSequenceNumber());
-    }
-
-    @Override
     @SuppressWarnings("unchecked")
     protected List<? extends DomainEventData<?>> fetchDomainEvents(String aggregateIdentifier, long firstSequenceNumber,
                                                                    int batchSize) {
@@ -159,6 +148,16 @@ public class LegacyJpaEventStorageEngine extends JpaEventStorageEngine {
                         "WHERE e.aggregateIdentifier = :id " + "AND e.sequenceNumber >= :seq " +
                         "ORDER BY e.sequenceNumber ASC").setParameter("id", aggregateIdentifier)
                 .setParameter("seq", firstSequenceNumber).setMaxResults(batchSize).getResultList();
+    }
+
+    /**
+     * {@inheritDoc}
+     *
+     * This storage engine does not support tracking. This method will always return {@code false}.
+     */
+    @Override
+    protected boolean supplementMissingTrackingTokens() {
+        return false;
     }
 
     @Override

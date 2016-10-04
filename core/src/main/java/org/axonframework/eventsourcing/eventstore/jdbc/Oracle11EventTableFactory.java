@@ -29,7 +29,7 @@ public class Oracle11EventTableFactory extends AbstractEventTableFactory {
                 "PRIMARY KEY (" + schema.globalIndexColumn() + "),\n" +
                 "UNIQUE (" + schema.aggregateIdentifierColumn() + ", " +
                 schema.sequenceNumberColumn() + "),\n" +
-                "UNIQUE (" + schema.eventIdentifierColumn() + ")\n" +
+                "UNIQUE (" + schema.eventIdentifierColumn() + "),\n" +
                 "UNIQUE (" + schema.trackingTokenColumn() + ")\n" +
                 ")";
         connection.prepareStatement(sql)

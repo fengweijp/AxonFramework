@@ -19,7 +19,6 @@ package org.axonframework.mongo.eventsourcing.eventstore;
 import com.mongodb.DuplicateKeyException;
 import com.mongodb.MongoBulkWriteException;
 import org.axonframework.common.jdbc.PersistenceExceptionResolver;
-import org.axonframework.common.transaction.NoTransactionManager;
 import org.axonframework.eventhandling.EventMessage;
 import org.axonframework.eventsourcing.DomainEventMessage;
 import org.axonframework.eventsourcing.eventstore.BatchingEventStorageEngine;
@@ -84,8 +83,7 @@ public class MongoEventStorageEngine extends BatchingEventStorageEngine {
      */
     public MongoEventStorageEngine(Serializer serializer, EventUpcasterChain upcasterChain, Integer batchSize,
                                    MongoTemplate template, StorageStrategy storageStrategy) {
-        super(serializer, upcasterChain, MongoEventStorageEngine::isDuplicateKeyException,
-              NoTransactionManager.INSTANCE, batchSize);
+        super(serializer, upcasterChain, MongoEventStorageEngine::isDuplicateKeyException, batchSize);
         this.template = template;
         this.storageStrategy = storageStrategy;
     }
@@ -107,7 +105,7 @@ public class MongoEventStorageEngine extends BatchingEventStorageEngine {
     public MongoEventStorageEngine(Serializer serializer, EventUpcasterChain upcasterChain,
                                    PersistenceExceptionResolver persistenceExceptionResolver, Integer batchSize,
                                    MongoTemplate template, StorageStrategy storageStrategy) {
-        super(serializer, upcasterChain, persistenceExceptionResolver, NoTransactionManager.INSTANCE, batchSize);
+        super(serializer, upcasterChain, persistenceExceptionResolver, batchSize);
         this.template = template;
         this.storageStrategy = storageStrategy;
     }
@@ -163,8 +161,9 @@ public class MongoEventStorageEngine extends BatchingEventStorageEngine {
         return storageStrategy.findTrackedEvents(template.eventCollection(), lastToken, batchSize);
     }
 
-    @Override
-    protected TrackingToken getTokenForGapDetection(TrackingToken token) {
-        return storageStrategy.getTokenForGapDetection(token);
-    }
+    //todo Currently there is no reliable way to use Mongo for tracking
+//    @Override
+//    protected TrackingToken getTokenForGapDetection(TrackingToken token) {
+//        return storageStrategy.getTokenForGapDetection(token);
+//    }
 }

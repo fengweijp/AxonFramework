@@ -50,11 +50,14 @@ public abstract class CurrentUnitOfWork {
      * it does nothing
      *
      * @param consumer The consumer to invoke if a Unit of Work is active
+     * @return {@code true} if the UnitOfWork is started, {@code false} otherwise
      */
-    public static void ifStarted(Consumer<UnitOfWork<?>> consumer) {
+    public static boolean ifStarted(Consumer<UnitOfWork<?>> consumer) {
         if (isStarted()) {
             consumer.accept(get());
+            return true;
         }
+        return false;
     }
 
     /**
@@ -81,15 +84,10 @@ public abstract class CurrentUnitOfWork {
      * @throws IllegalStateException if no UnitOfWork is active
      */
     public static UnitOfWork<?> get() {
-        if (isEmpty()) {
+        if (!isStarted()) {
             throw new IllegalStateException("No UnitOfWork is currently started for this thread.");
         }
         return CURRENT.get().peek();
-    }
-
-    private static boolean isEmpty() {
-        Deque<UnitOfWork<?>> unitsOfWork = CURRENT.get();
-        return unitsOfWork == null || unitsOfWork.isEmpty();
     }
 
     /**

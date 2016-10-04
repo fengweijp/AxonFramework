@@ -19,10 +19,7 @@ package org.axonframework.integrationtests.eventstore.benchmark;
 import org.axonframework.common.jpa.SimpleEntityManagerProvider;
 import org.axonframework.eventhandling.TrackedEventMessage;
 import org.axonframework.eventsourcing.DomainEventMessage;
-import org.axonframework.eventsourcing.eventstore.BatchingEventStorageEngine;
-import org.axonframework.eventsourcing.eventstore.DefaultTrackingToken;
-import org.axonframework.eventsourcing.eventstore.EmbeddedEventStore;
-import org.axonframework.eventsourcing.eventstore.TrackingEventStream;
+import org.axonframework.eventsourcing.eventstore.*;
 import org.axonframework.eventsourcing.eventstore.jpa.JpaEventStorageEngine;
 import org.axonframework.serialization.Serializer;
 import org.axonframework.serialization.upcasting.event.NoOpEventUpcasterChain;
@@ -80,7 +77,7 @@ public class JpaStorageEngineInsertionReadOrderTest {
 
         testSubject = new JpaEventStorageEngine(serializer, NoOpEventUpcasterChain.INSTANCE, null,
                                                 new SpringTransactionManager(tx), 20,
-                                                new SimpleEntityManagerProvider(entityManager));
+                                                new SimpleEntityManagerProvider(entityManager), new DefaultEventSequencer());
     }
 
     @Test(timeout = 30000)
@@ -123,7 +120,7 @@ public class JpaStorageEngineInsertionReadOrderTest {
         //increase batch size to 100
         testSubject = new JpaEventStorageEngine(serializer, NoOpEventUpcasterChain.INSTANCE, null,
                                                 new SpringTransactionManager(tx), 100,
-                                                new SimpleEntityManagerProvider(entityManager));
+                                                new SimpleEntityManagerProvider(entityManager), new DefaultEventSequencer());
         int threadCount = 4, eventsPerThread = 100, inverseRollbackRate = 2, rollbacksPerThread =
                 (eventsPerThread + inverseRollbackRate - 1) / inverseRollbackRate;
         int expectedEventCount = threadCount * eventsPerThread - rollbacksPerThread * threadCount;

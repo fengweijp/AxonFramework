@@ -22,10 +22,7 @@ import org.axonframework.common.jpa.SimpleEntityManagerProvider;
 import org.axonframework.common.transaction.NoTransactionManager;
 import org.axonframework.eventhandling.EventMessage;
 import org.axonframework.eventsourcing.DomainEventMessage;
-import org.axonframework.eventsourcing.eventstore.AbstractEventStorageEngine;
-import org.axonframework.eventsourcing.eventstore.BatchingEventStorageEngineTest;
-import org.axonframework.eventsourcing.eventstore.DomainEventData;
-import org.axonframework.eventsourcing.eventstore.EventData;
+import org.axonframework.eventsourcing.eventstore.*;
 import org.axonframework.serialization.Serializer;
 import org.axonframework.serialization.UnknownSerializedTypeException;
 import org.axonframework.serialization.upcasting.event.EventUpcasterChain;
@@ -38,6 +35,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.ContextConfiguration;
 import org.springframework.test.context.junit4.SpringJUnit4ClassRunner;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
 
 import javax.persistence.EntityManager;
@@ -67,6 +65,9 @@ public class JpaEventStorageEngineTest extends BatchingEventStorageEngineTest {
 
     @Autowired
     private DataSource dataSource;
+
+    @Autowired
+    private PlatformTransactionManager transactionManager;
 
     private PersistenceExceptionResolver defaultPersistenceExceptionResolver;
 
@@ -106,7 +107,7 @@ public class JpaEventStorageEngineTest extends BatchingEventStorageEngineTest {
     public void testStoreEventsWithCustomEntity() throws Exception {
         testSubject = new JpaEventStorageEngine(new XStreamSerializer(), NoOpEventUpcasterChain.INSTANCE,
                                                 defaultPersistenceExceptionResolver, NoTransactionManager.INSTANCE, 100,
-                                                entityManagerProvider) {
+                                                entityManagerProvider, DirectEventSequencer.INSTANCE) {
 
             @Override
             protected EventData<?> createEventEntity(EventMessage<?> eventMessage, Serializer serializer) {
@@ -151,6 +152,7 @@ public class JpaEventStorageEngineTest extends BatchingEventStorageEngineTest {
     protected JpaEventStorageEngine createEngine(EventUpcasterChain upcasterChain,
                                                  PersistenceExceptionResolver persistenceExceptionResolver) {
         return new JpaEventStorageEngine(new XStreamSerializer(), upcasterChain, persistenceExceptionResolver,
-                                         NoTransactionManager.INSTANCE, 100, entityManagerProvider);
+                                         NoTransactionManager.INSTANCE, 100, entityManagerProvider,
+                                         DirectEventSequencer.INSTANCE);
     }
 }

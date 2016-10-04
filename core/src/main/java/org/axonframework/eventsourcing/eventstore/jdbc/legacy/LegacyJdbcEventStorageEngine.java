@@ -110,17 +110,6 @@ public class LegacyJdbcEventStorageEngine extends JdbcEventStorageEngine {
     }
 
     @Override
-    protected TrackingToken getTokenForGapDetection(TrackingToken token) {
-        if (token == null) {
-            return null;
-        }
-        Assert.isTrue(token instanceof LegacyTrackingToken, String.format("Token %s is of the wrong type", token));
-        LegacyTrackingToken legacyToken = (LegacyTrackingToken) token;
-        return new LegacyTrackingToken(legacyToken.getTimestamp(), legacyToken.getAggregateIdentifier(),
-                                       legacyToken.getSequenceNumber());
-    }
-
-    @Override
     public PreparedStatement readEventData(Connection connection, TrackingToken lastToken) throws SQLException {
         Assert.isTrue(lastToken == null || lastToken instanceof LegacyTrackingToken,
                       String.format("Token [%s] is of the wrong type", lastToken));

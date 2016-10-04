@@ -27,6 +27,7 @@ import org.axonframework.serialization.xml.XStreamSerializer;
 import javax.persistence.EntityManager;
 import javax.sql.DataSource;
 import java.sql.SQLException;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Optional;
 
@@ -40,7 +41,7 @@ import static org.axonframework.eventsourcing.eventstore.EventUtils.asDomainEven
  *
  * @author Rene de Waele
  */
-public class JpaEventStorageEngine extends BatchingEventStorageEngine {
+public class JpaEventStorageEngine extends SequencingEventStorageEngine {
     private final EntityManagerProvider entityManagerProvider;
 
     /**
@@ -50,11 +51,10 @@ public class JpaEventStorageEngine extends BatchingEventStorageEngine {
      * Events are read in batches of 100. No upcasting is performed after the events have been fetched.
      *
      * @param entityManagerProvider Provider for the {@link EntityManager} used by this EventStorageEngine.
-     * @param transactionManager    The transaction manager used to set the isolation level of the transaction when
-     *                              loading events
+     * @param transactionManager    The transaction manager used when updating events with missing tracking tokens.
      */
     public JpaEventStorageEngine(EntityManagerProvider entityManagerProvider, TransactionManager transactionManager) {
-        this(null, null, null, transactionManager, null, entityManagerProvider);
+        this(null, null, null, transactionManager, null, entityManagerProvider, null);
     }
 
     /**
@@ -62,18 +62,17 @@ public class JpaEventStorageEngine extends BatchingEventStorageEngine {
      *
      * @param serializer            Used to serialize and deserialize event payload and metadata.
      * @param upcasterChain         Allows older revisions of serialized objects to be deserialized.
-     * @param dataSource            Allows the EventStore to detect the database type and define the
-     *                              error codes that represent concurrent access failures for most database types.
-     * @param transactionManager    The transaction manager used to set the isolation level of the transaction when
-     *                              loading events
+     * @param dataSource            Allows the EventStore to detect the database type and define the error codes that
+     *                              represent concurrent access failures for most database types.
+     * @param transactionManager    The transaction manager used when updating events with missing tracking tokens.
      * @param entityManagerProvider Provider for the {@link EntityManager} used by this EventStorageEngine.
-     * @throws SQLException         If the database product name can not be determined from the given {@code dataSource}
+     * @throws SQLException If the database product name can not be determined from the given {@code dataSource}
      */
     public JpaEventStorageEngine(Serializer serializer, EventUpcasterChain upcasterChain, DataSource dataSource,
                                  TransactionManager transactionManager,
                                  EntityManagerProvider entityManagerProvider) throws SQLException {
         this(serializer, upcasterChain, new SQLErrorCodesResolver(dataSource), transactionManager, null,
-             entityManagerProvider);
+             entityManagerProvider, null);
     }
 
     /**
@@ -83,20 +82,22 @@ public class JpaEventStorageEngine extends BatchingEventStorageEngine {
      * @param upcasterChain                Allows older revisions of serialized objects to be deserialized.
      * @param persistenceExceptionResolver Detects concurrency exceptions from the backing database. If {@code null}
      *                                     persistence exceptions are not explicitly resolved.
-     * @param transactionManager           The transaction manager used to set the isolation level of the transaction
-     *                                     when loading events
+     * @param transactionManager           The transaction manager used when updating events with missing tracking
+     *                                     tokens.
      * @param batchSize                    The number of events that should be read at each database access. When more
      *                                     than this number of events must be read to rebuild an aggregate's state, the
      *                                     events are read in batches of this size. Tip: if you use a snapshotter, make
      *                                     sure to choose snapshot trigger and batch size such that a single batch will
      *                                     generally retrieve all events required to rebuild an aggregate's state.
      * @param entityManagerProvider        Provider for the {@link EntityManager} used by this EventStorageEngine.
+     * @param eventSequencer               Creates tracking tokens for events after they are appended to the event
+     *                                     store. If {@code null} a {@link DefaultEventSequencer} is used.
      */
     public JpaEventStorageEngine(Serializer serializer, EventUpcasterChain upcasterChain,
                                  PersistenceExceptionResolver persistenceExceptionResolver,
                                  TransactionManager transactionManager, Integer batchSize,
-                                 EntityManagerProvider entityManagerProvider) {
-        super(serializer, upcasterChain, persistenceExceptionResolver, transactionManager, batchSize);
+                                 EntityManagerProvider entityManagerProvider, EventSequencer eventSequencer) {
+        super(serializer, upcasterChain, persistenceExceptionResolver, batchSize, eventSequencer, transactionManager);
         this.entityManagerProvider = entityManagerProvider;
     }
 
@@ -113,11 +114,6 @@ public class JpaEventStorageEngine extends BatchingEventStorageEngine {
                         "WHERE e.trackingToken > :token " + "ORDER BY e.trackingToken ASC")
                 .setParameter("token", lastToken == null ? -1 : ((DefaultTrackingToken) lastToken).getIndex())
                 .setMaxResults(batchSize).getResultList();
-    }
-
-    @Override
-    protected TrackingToken getTokenForGapDetection(TrackingToken token) {
-        return token;
     }
 
     @Override
@@ -147,16 +143,51 @@ public class JpaEventStorageEngine extends BatchingEventStorageEngine {
     }
 
     @Override
-    protected void appendEvents(List<? extends EventMessage<?>> events, Serializer serializer) {
-        if (events.isEmpty()) {
-            return;
-        }
-        try {
-            events.stream().map(event -> createEventEntity(event, serializer)).forEach(entityManager()::persist);
-            entityManager().flush();
-        } catch (Exception e) {
-            handlePersistenceException(e, events.get(0));
-        }
+    protected void doAppendEvents(List<? extends EventMessage<?>> events, Serializer serializer) {
+        events.stream().map(event -> createEventEntity(event, serializer)).forEach(entityManager()::persist);
+        entityManager().flush();
+    }
+
+    @Override
+    protected void updateTrackingToken(Object eventId, TrackingToken nextTrackingToken) {
+        entityManager().createQuery("UPDATE " + domainEventEntryEntityName() +
+                                            " e SET e.trackingToken = :nextToken WHERE e.globalIndex = :id")
+                .setParameter("nextToken", ((DefaultTrackingToken) nextTrackingToken).getIndex())
+                .setParameter("id", eventId).executeUpdate();
+    }
+
+    @Override
+    protected Iterator<TrackingToken> trackingTokenSupplier() {
+        DefaultTrackingToken first = entityManager()
+                .createQuery("SELECT MAX(e.trackingToken) FROM " + domainEventEntryEntityName() + " e", Long.class)
+                .setMaxResults(1).getResultList().stream().findAny().filter(index -> index > 0)
+                .map(DefaultTrackingToken::new).map(DefaultTrackingToken::next).orElse(new DefaultTrackingToken(0L));
+
+        return new Iterator<TrackingToken>() {
+            private DefaultTrackingToken next;
+
+            @Override
+            public boolean hasNext() {
+                return true;
+            }
+
+            @Override
+            public TrackingToken next() {
+                return next = (next == null ? first : next.next());
+            }
+        };
+    }
+
+    /**
+     * Returns a list of primary keys for all events that do not have a tracking token value yet. The order of keys in
+     * the returned list should follow the insertion order of the events.
+     *
+     * @return list of primary keys of events without global tracking token
+     */
+    protected List<?> getUnsequencedEventIds() {
+        return entityManager().createQuery("SELECT e.globalIndex " + "FROM " + domainEventEntryEntityName() + " e " +
+                                                   "WHERE e.trackingToken < 0 ORDER BY e.globalIndex ASC")
+                .getResultList();
     }
 
     @Override

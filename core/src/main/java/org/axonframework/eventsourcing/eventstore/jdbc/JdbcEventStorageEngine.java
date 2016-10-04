@@ -30,6 +30,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.Instant;
 import java.time.temporal.TemporalAccessor;
+import java.util.Random;
 
 /**
  * EventStorageEngine implementation that uses JDBC to store and fetch events.
@@ -40,6 +41,8 @@ import java.time.temporal.TemporalAccessor;
  * @author Rene de Waele
  */
 public class JdbcEventStorageEngine extends AbstractJdbcEventStorageEngine {
+
+    private static final Random random = new Random();
 
     private final Class<?> dataType;
     private final EventSchema schema;
@@ -134,20 +137,21 @@ public class JdbcEventStorageEngine extends AbstractJdbcEventStorageEngine {
         SerializedObject<?> payload = serializer.serialize(event.getPayload(), dataType);
         SerializedObject<?> metaData = serializer.serialize(event.getMetaData(), dataType);
         final String sql = "INSERT INTO " + table + " (" +
-                String.join(", ", schema.eventIdentifierColumn(), schema.aggregateIdentifierColumn(),
-                            schema.sequenceNumberColumn(), schema.typeColumn(), schema.timestampColumn(),
-                            schema.payloadTypeColumn(), schema.payloadRevisionColumn(), schema.payloadColumn(),
-                            schema.metaDataColumn()) + ") VALUES (?,?,?,?,?,?,?,?,?)";
+                String.join(", ", schema.trackingTokenColumn(), schema.eventIdentifierColumn(),
+                            schema.aggregateIdentifierColumn(), schema.sequenceNumberColumn(), schema.typeColumn(),
+                            schema.timestampColumn(), schema.payloadTypeColumn(), schema.payloadRevisionColumn(),
+                            schema.payloadColumn(), schema.metaDataColumn()) + ") VALUES (?,?,?,?,?,?,?,?,?,?)";
         PreparedStatement preparedStatement = connection.prepareStatement(sql); // NOSONAR
-        preparedStatement.setString(1, event.getIdentifier());
-        preparedStatement.setString(2, event.getAggregateIdentifier());
-        preparedStatement.setLong(3, event.getSequenceNumber());
-        preparedStatement.setString(4, event.getType());
-        writeTimestamp(preparedStatement, 5, event.getTimestamp());
-        preparedStatement.setString(6, payload.getType().getName());
-        preparedStatement.setString(7, payload.getType().getRevision());
-        preparedStatement.setObject(8, payload.getData());
-        preparedStatement.setObject(9, metaData.getData());
+        preparedStatement.setLong(1, Math.negateExact(random.nextInt(Integer.MAX_VALUE)));
+        preparedStatement.setString(2, event.getIdentifier());
+        preparedStatement.setString(3, event.getAggregateIdentifier());
+        preparedStatement.setLong(4, event.getSequenceNumber());
+        preparedStatement.setString(5, event.getType());
+        writeTimestamp(preparedStatement, 6, event.getTimestamp());
+        preparedStatement.setString(7, payload.getType().getName());
+        preparedStatement.setString(8, payload.getType().getRevision());
+        preparedStatement.setObject(9, payload.getData());
+        preparedStatement.setObject(10, metaData.getData());
         return preparedStatement;
     }
 
@@ -180,11 +184,6 @@ public class JdbcEventStorageEngine extends AbstractJdbcEventStorageEngine {
         PreparedStatement preparedStatement = connection.prepareStatement(sql);
         preparedStatement.setLong(1, lastToken == null ? -1 : ((DefaultTrackingToken) lastToken).getIndex());
         return preparedStatement;
-    }
-
-    @Override
-    protected TrackingToken getTokenForGapDetection(TrackingToken token) {
-        return token;
     }
 
     @Override

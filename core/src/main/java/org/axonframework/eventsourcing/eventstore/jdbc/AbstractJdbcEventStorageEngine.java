@@ -72,7 +72,7 @@ public abstract class AbstractJdbcEventStorageEngine extends BatchingEventStorag
                                              TransactionManager transactionManager, Integer batchSize,
                                              ConnectionProvider connectionProvider) {
         super(serializer, upcasterChain, getOrDefault(persistenceExceptionResolver, new JdbcSQLErrorCodesResolver()),
-              transactionManager, batchSize);
+              batchSize);
         this.connectionProvider = connectionProvider;
     }
 

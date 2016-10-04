@@ -113,6 +113,15 @@ public abstract class AbstractEventStorageEngine implements EventStorageEngine {
     }
 
     /**
+     * Returns the {@link PersistenceExceptionResolver} used by the event storage engine.
+     *
+     * @return the PersistenceExceptionResolver of the event storage
+     */
+    protected PersistenceExceptionResolver persistenceExceptionResolver() {
+        return persistenceExceptionResolver;
+    }
+
+    /**
      * Append given {@code events} to the backing database. Use the given {@code serializer} to serialize the event's
      * payload and metadata.
      *
