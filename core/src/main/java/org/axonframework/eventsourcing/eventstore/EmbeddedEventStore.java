@@ -75,11 +75,13 @@ public class EmbeddedEventStore extends AbstractEventStore {
     public void shutDown() {
         tailingConsumers.forEach(IOUtils::closeQuietly);
         IOUtils.closeQuietly(producer);
+        storageEngine().shutDown();
         cleanupService.shutdownNow();
     }
 
     private void ensureProducerStarted() {
         if (producerStarted.compareAndSet(false, true)) {
+            storageEngine().start();
             threadFactory.newThread(() -> {
                 try {
                     producer.run();

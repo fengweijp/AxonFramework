@@ -24,4 +24,6 @@ public interface EventSequencer {
 
     void updateSequence(Function<UnitOfWork<?>, Boolean> updateFunction);
 
+    void shutDown();
+
 }

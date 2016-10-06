@@ -17,6 +17,7 @@ import org.axonframework.common.jdbc.PersistenceExceptionResolver;
 import org.axonframework.common.transaction.NoTransactionManager;
 import org.axonframework.eventsourcing.eventstore.AbstractEventStorageEngine;
 import org.axonframework.eventsourcing.eventstore.BatchingEventStorageEngineTest;
+import org.axonframework.eventsourcing.eventstore.DirectEventSequencer;
 import org.axonframework.eventsourcing.eventstore.jpa.SQLErrorCodesResolver;
 import org.axonframework.serialization.upcasting.event.EventUpcasterChain;
 import org.axonframework.serialization.upcasting.event.NoOpEventUpcasterChain;
@@ -88,10 +89,10 @@ public class JdbcEventStorageEngineTest extends BatchingEventStorageEngineTest {
     protected AbstractJdbcEventStorageEngine createEngine(EventUpcasterChain upcasterChain,
                                                           PersistenceExceptionResolver persistenceExceptionResolver,
                                                           EventSchema eventSchema, Class<?> dataType, EventTableFactory tableFactory) {
-        AbstractJdbcEventStorageEngine result =
+        JdbcEventStorageEngine result =
                 new JdbcEventStorageEngine(new XStreamSerializer(), upcasterChain, persistenceExceptionResolver,
                                            NoTransactionManager.INSTANCE, 100, dataSource::getConnection, dataType,
-                                           eventSchema);
+                                           eventSchema, DirectEventSequencer.INSTANCE);
         try {
             Connection connection = dataSource.getConnection();
             connection.prepareStatement("DROP TABLE IF EXISTS DomainEventEntry").executeUpdate();

@@ -13,6 +13,7 @@
 
 package org.axonframework.eventsourcing.eventstore;
 
+import org.axonframework.commandhandling.model.ConcurrencyException;
 import org.axonframework.common.jdbc.PersistenceExceptionResolver;
 import org.axonframework.common.transaction.Transaction;
 import org.axonframework.common.transaction.TransactionManager;
@@ -22,8 +23,8 @@ import org.axonframework.serialization.upcasting.event.EventUpcasterChain;
 import org.axonframework.serialization.upcasting.event.NoOpEventUpcasterChain;
 import org.axonframework.serialization.xml.XStreamSerializer;
 
-import java.util.Iterator;
 import java.util.List;
+import java.util.function.Supplier;
 
 import static org.axonframework.common.ObjectUtils.getOrDefault;
 
@@ -103,18 +104,15 @@ public abstract class SequencingEventStorageEngine extends BatchingEventStorageE
         if (unsequencedEventIds.isEmpty()) {
             return false;
         }
-        Iterator<TrackingToken> trackingTokenSupplier = trackingTokenSupplier();
+        Supplier<TrackingToken> trackingTokenSupplier = trackingTokenSupplier();
         Transaction transaction = transactionManager.startTransaction();
         try {
             for (Object eventId : unsequencedEventIds) {
-                updateTrackingToken(eventId, trackingTokenSupplier.next());
+                updateTrackingToken(eventId, trackingTokenSupplier.get());
             }
-        } catch (Exception e) {
-            if (persistenceExceptionResolver().isDuplicateKeyViolation(e)) {
-                transaction.rollback();
-                return true;
-            }
-            throw e;
+        } catch (ConcurrencyException e) {
+            transaction.rollback();
+            return true;
         }
         transaction.commit();
         return true;
@@ -125,6 +123,7 @@ public abstract class SequencingEventStorageEngine extends BatchingEventStorageE
      *
      * @param eventId           The id of the event to update
      * @param nextTrackingToken The tracking token to give the event
+     * @throws ConcurrencyException If the entry could not be updated because the given tracking token is already in use
      */
     protected abstract void updateTrackingToken(Object eventId, TrackingToken nextTrackingToken);
 
@@ -135,7 +134,7 @@ public abstract class SequencingEventStorageEngine extends BatchingEventStorageE
      *
      * @return supplier of the next available tracking token in the store
      */
-    protected abstract Iterator<TrackingToken> trackingTokenSupplier();
+    protected abstract Supplier<TrackingToken> trackingTokenSupplier();
 
     /**
      * Returns a list of primary keys for all events that do not have a tracking token value yet. The order of keys in
@@ -144,4 +143,14 @@ public abstract class SequencingEventStorageEngine extends BatchingEventStorageE
      * @return list of primary keys of events without global tracking token
      */
     protected abstract List<?> getUnsequencedEventIds();
+
+    @Override
+    public void start() {
+        eventSequencer.updateSequence(uow -> supplementMissingTrackingTokens());
+    }
+
+    @Override
+    public void shutDown() {
+        eventSequencer.shutDown();
+    }
 }

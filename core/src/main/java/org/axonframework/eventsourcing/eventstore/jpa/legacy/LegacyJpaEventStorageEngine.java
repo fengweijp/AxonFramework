@@ -19,13 +19,14 @@ import org.axonframework.common.jpa.EntityManagerProvider;
 import org.axonframework.common.transaction.TransactionManager;
 import org.axonframework.eventhandling.EventMessage;
 import org.axonframework.eventsourcing.eventstore.DomainEventData;
+import org.axonframework.eventsourcing.eventstore.NoOpEventSequencer;
 import org.axonframework.eventsourcing.eventstore.TrackedEventData;
 import org.axonframework.eventsourcing.eventstore.TrackingToken;
 import org.axonframework.eventsourcing.eventstore.jpa.JpaEventStorageEngine;
+import org.axonframework.eventsourcing.eventstore.jpa.SQLErrorCodesResolver;
 import org.axonframework.eventsourcing.eventstore.legacy.LegacyTrackingToken;
 import org.axonframework.serialization.Serializer;
 import org.axonframework.serialization.upcasting.event.EventUpcasterChain;
-import org.axonframework.serialization.xml.XStreamSerializer;
 
 import javax.persistence.EntityManager;
 import javax.persistence.Query;
@@ -49,22 +50,10 @@ import static org.axonframework.eventsourcing.eventstore.EventUtils.asDomainEven
 public class LegacyJpaEventStorageEngine extends JpaEventStorageEngine {
 
     /**
-     * Initializes an EventStorageEngine that uses JPA to store and load events. The payload and metadata of events is
-     * stored as a serialized blob of bytes using a new {@link XStreamSerializer}.
+     * Initializes an EventStorageEngine that uses JPA to store and load events.
      * <p>
-     * Events are read in batches of 100. No upcasting is performed after the events have been fetched.
-     *
-     * @param transactionManager    The transaction manager used to set the isolation level of the transaction when
-     *                              loading events
-     * @param entityManagerProvider Provider for the {@link EntityManager} used by this EventStorageEngine.
-     */
-    public LegacyJpaEventStorageEngine(TransactionManager transactionManager,
-                                       EntityManagerProvider entityManagerProvider) {
-        super(entityManagerProvider, transactionManager);
-    }
-
-    /**
-     * Initializes an EventStorageEngine that uses JPA to store and load events. Events are fetched in batches of 100.
+     * Events are fetched in batches of 100. A {@link SQLErrorCodesResolver} is used to resolve concurrency exceptions
+     * while appending events.
      *
      * @param serializer            Used to serialize and deserialize event payload and metadata.
      * @param upcasterChain         Allows older revisions of serialized objects to be deserialized.
@@ -78,7 +67,8 @@ public class LegacyJpaEventStorageEngine extends JpaEventStorageEngine {
     public LegacyJpaEventStorageEngine(Serializer serializer, EventUpcasterChain upcasterChain, DataSource dataSource,
                                        TransactionManager transactionManager,
                                        EntityManagerProvider entityManagerProvider) throws SQLException {
-        super(serializer, upcasterChain, dataSource, transactionManager, entityManagerProvider);
+        super(serializer, upcasterChain, dataSource, transactionManager, entityManagerProvider,
+              NoOpEventSequencer.INSTANCE);
     }
 
     /**
@@ -102,7 +92,7 @@ public class LegacyJpaEventStorageEngine extends JpaEventStorageEngine {
                                        TransactionManager transactionManager, Integer batchSize,
                                        EntityManagerProvider entityManagerProvider) {
         super(serializer, upcasterChain, persistenceExceptionResolver, transactionManager, batchSize,
-              entityManagerProvider, null);
+              entityManagerProvider, NoOpEventSequencer.INSTANCE);
     }
 
     @Override
@@ -148,16 +138,6 @@ public class LegacyJpaEventStorageEngine extends JpaEventStorageEngine {
                         "WHERE e.aggregateIdentifier = :id " + "AND e.sequenceNumber >= :seq " +
                         "ORDER BY e.sequenceNumber ASC").setParameter("id", aggregateIdentifier)
                 .setParameter("seq", firstSequenceNumber).setMaxResults(batchSize).getResultList();
-    }
-
-    /**
-     * {@inheritDoc}
-     *
-     * This storage engine does not support tracking. This method will always return {@code false}.
-     */
-    @Override
-    protected boolean supplementMissingTrackingTokens() {
-        return false;
     }
 
     @Override

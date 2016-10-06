@@ -116,4 +116,18 @@ public interface EventStorageEngine {
      * @return An optional with a snapshot of the aggregate
      */
     Optional<DomainEventMessage<?>> readSnapshot(String aggregateIdentifier);
+
+    /**
+     * Start up this EventStorageEngine. By default this does nothing.
+     */
+    default void start() {
+        //no op by default
+    }
+
+    /**
+     * Shut down this EventStorageEngine. By default this does nothing.
+     */
+    default void shutDown() {
+        //no op by default
+    }
 }

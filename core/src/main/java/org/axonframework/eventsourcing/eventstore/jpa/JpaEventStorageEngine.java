@@ -13,6 +13,7 @@
 
 package org.axonframework.eventsourcing.eventstore.jpa;
 
+import org.axonframework.commandhandling.model.ConcurrencyException;
 import org.axonframework.common.Assert;
 import org.axonframework.common.jdbc.PersistenceExceptionResolver;
 import org.axonframework.common.jpa.EntityManagerProvider;
@@ -22,14 +23,14 @@ import org.axonframework.eventsourcing.DomainEventMessage;
 import org.axonframework.eventsourcing.eventstore.*;
 import org.axonframework.serialization.Serializer;
 import org.axonframework.serialization.upcasting.event.EventUpcasterChain;
-import org.axonframework.serialization.xml.XStreamSerializer;
 
 import javax.persistence.EntityManager;
 import javax.sql.DataSource;
 import java.sql.SQLException;
-import java.util.Iterator;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
+import java.util.function.Supplier;
 
 import static org.axonframework.eventsourcing.eventstore.EventUtils.asDomainEventMessage;
 
@@ -45,20 +46,11 @@ public class JpaEventStorageEngine extends SequencingEventStorageEngine {
     private final EntityManagerProvider entityManagerProvider;
 
     /**
-     * Initializes an EventStorageEngine that uses JPA to store and load events. The payload and metadata of events is
-     * stored as a serialized blob of bytes using a new {@link XStreamSerializer}.
+     * Initializes an EventStorageEngine that uses JPA to store and load events.
      * <p>
-     * Events are read in batches of 100. No upcasting is performed after the events have been fetched.
-     *
-     * @param entityManagerProvider Provider for the {@link EntityManager} used by this EventStorageEngine.
-     * @param transactionManager    The transaction manager used when updating events with missing tracking tokens.
-     */
-    public JpaEventStorageEngine(EntityManagerProvider entityManagerProvider, TransactionManager transactionManager) {
-        this(null, null, null, transactionManager, null, entityManagerProvider, null);
-    }
-
-    /**
-     * Initializes an EventStorageEngine that uses JPA to store and load events. Events are fetched in batches of 100.
+     * Events are fetched in batches of 100. A {@link DefaultEventSequencer} is used to supply even entries with
+     * tracking tokens. A {@link SQLErrorCodesResolver} is used to resolve concurrency exceptions while appending
+     * events.
      *
      * @param serializer            Used to serialize and deserialize event payload and metadata.
      * @param upcasterChain         Allows older revisions of serialized objects to be deserialized.
@@ -77,6 +69,28 @@ public class JpaEventStorageEngine extends SequencingEventStorageEngine {
 
     /**
      * Initializes an EventStorageEngine that uses JPA to store and load events.
+     * <p>
+     * Events are fetched in batches of 100. A {@link SQLErrorCodesResolver} is used to resolve concurrency exceptions
+     * while appending events.
+     *
+     * @param serializer            Used to serialize and deserialize event payload and metadata.
+     * @param upcasterChain         Allows older revisions of serialized objects to be deserialized.
+     * @param dataSource            Allows the EventStore to detect the database type and define the error codes that
+     *                              represent concurrent access failures for most database types.
+     * @param transactionManager    The transaction manager used when updating events with missing tracking tokens.
+     * @param entityManagerProvider Provider for the {@link EntityManager} used by this EventStorageEngine.
+     * @param eventSequencer        Creates tracking tokens for events after they are appended to the event store.
+     * @throws SQLException If the database product name can not be determined from the given {@code dataSource}
+     */
+    public JpaEventStorageEngine(Serializer serializer, EventUpcasterChain upcasterChain, DataSource dataSource,
+                                 TransactionManager transactionManager, EntityManagerProvider entityManagerProvider,
+                                 EventSequencer eventSequencer) throws SQLException {
+        this(serializer, upcasterChain, new SQLErrorCodesResolver(dataSource), transactionManager, null,
+             entityManagerProvider, eventSequencer);
+    }
+
+    /**
+     * Initializes an EventStorageEngine that uses JPA to store and load events.
      *
      * @param serializer                   Used to serialize and deserialize event payload and metadata.
      * @param upcasterChain                Allows older revisions of serialized objects to be deserialized.
@@ -91,7 +105,7 @@ public class JpaEventStorageEngine extends SequencingEventStorageEngine {
      *                                     generally retrieve all events required to rebuild an aggregate's state.
      * @param entityManagerProvider        Provider for the {@link EntityManager} used by this EventStorageEngine.
      * @param eventSequencer               Creates tracking tokens for events after they are appended to the event
-     *                                     store. If {@code null} a {@link DefaultEventSequencer} is used.
+     *                                     store.
      */
     public JpaEventStorageEngine(Serializer serializer, EventUpcasterChain upcasterChain,
                                  PersistenceExceptionResolver persistenceExceptionResolver,
@@ -150,30 +164,34 @@ public class JpaEventStorageEngine extends SequencingEventStorageEngine {
 
     @Override
     protected void updateTrackingToken(Object eventId, TrackingToken nextTrackingToken) {
-        entityManager().createQuery("UPDATE " + domainEventEntryEntityName() +
-                                            " e SET e.trackingToken = :nextToken WHERE e.globalIndex = :id")
-                .setParameter("nextToken", ((DefaultTrackingToken) nextTrackingToken).getIndex())
-                .setParameter("id", eventId).executeUpdate();
+        try {
+            entityManager().createQuery("UPDATE " + domainEventEntryEntityName() +
+                                                " e SET e.trackingToken = :nextToken WHERE e.globalIndex = :id")
+                    .setParameter("nextToken", ((DefaultTrackingToken) nextTrackingToken).getIndex())
+                    .setParameter("id", eventId).executeUpdate();
+        } catch (Exception e) {
+            if (persistenceExceptionResolver() != null && persistenceExceptionResolver().isDuplicateKeyViolation(e)) {
+                throw new ConcurrencyException(
+                        String.format("Failed to update event [%s] with tracking token [%s]", eventId,
+                                      nextTrackingToken), e);
+            }
+            throw e;
+        }
     }
 
     @Override
-    protected Iterator<TrackingToken> trackingTokenSupplier() {
-        DefaultTrackingToken first = entityManager()
-                .createQuery("SELECT MAX(e.trackingToken) FROM " + domainEventEntryEntityName() + " e", Long.class)
-                .setMaxResults(1).getResultList().stream().findAny().filter(index -> index > 0)
-                .map(DefaultTrackingToken::new).map(DefaultTrackingToken::next).orElse(new DefaultTrackingToken(0L));
+    protected Supplier<TrackingToken> trackingTokenSupplier() {
+        DefaultTrackingToken first = entityManager().createQuery(
+                "SELECT MAX(e.trackingToken) FROM " + domainEventEntryEntityName() + " e WHERE e.trackingToken >= 0",
+                Long.class).getResultList().stream().filter(Objects::nonNull).findAny().map(DefaultTrackingToken::new)
+                .map(DefaultTrackingToken::next).orElse(new DefaultTrackingToken(0L));
 
-        return new Iterator<TrackingToken>() {
-            private DefaultTrackingToken next;
-
-            @Override
-            public boolean hasNext() {
-                return true;
-            }
+        return new Supplier<TrackingToken>() {
+            private DefaultTrackingToken last;
 
             @Override
-            public TrackingToken next() {
-                return next = (next == null ? first : next.next());
+            public TrackingToken get() {
+                return last = (last == null ? first : last.next());
             }
         };
     }

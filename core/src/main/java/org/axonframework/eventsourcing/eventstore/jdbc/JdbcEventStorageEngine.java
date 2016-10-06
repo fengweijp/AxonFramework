@@ -13,6 +13,7 @@
 
 package org.axonframework.eventsourcing.eventstore.jdbc;
 
+import org.axonframework.commandhandling.model.ConcurrencyException;
 import org.axonframework.common.Assert;
 import org.axonframework.common.jdbc.ConnectionProvider;
 import org.axonframework.common.jdbc.PersistenceExceptionResolver;
@@ -22,7 +23,6 @@ import org.axonframework.eventsourcing.eventstore.*;
 import org.axonframework.serialization.SerializedObject;
 import org.axonframework.serialization.Serializer;
 import org.axonframework.serialization.upcasting.event.EventUpcasterChain;
-import org.axonframework.serialization.xml.XStreamSerializer;
 
 import java.sql.Connection;
 import java.sql.PreparedStatement;
@@ -30,7 +30,11 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.Instant;
 import java.time.temporal.TemporalAccessor;
+import java.util.List;
+import java.util.Objects;
+import java.util.Optional;
 import java.util.Random;
+import java.util.function.Supplier;
 
 /**
  * EventStorageEngine implementation that uses JDBC to store and fetch events.
@@ -49,16 +53,25 @@ public class JdbcEventStorageEngine extends AbstractJdbcEventStorageEngine {
 
     /**
      * Initializes an EventStorageEngine that uses JDBC to store and load events using the default {@link EventSchema}.
-     * The payload and metadata of events is stored as a serialized blob of bytes using a new {@link XStreamSerializer}.
+     * The payload and metadata of events is stored as a serialized blob of bytes using the given {@code serializer}.
      * <p>
-     * Events are read in batches of 100. No upcasting is performed after the events have been fetched.
+     * Events are read in batches of 100. The given {@code upcasterChain} is used to upcast events before
+     * deserialization.
+     * <p>
+     * A {@link DefaultEventSequencer} is used to supply even entries with tracking tokens.
      *
-     * @param connectionProvider The provider of connections to the underlying database
-     * @param transactionManager The transaction manager used to set the isolation level of the transaction when loading
-     *                           events
+     * @param serializer                   Used to serialize and deserialize event payload and metadata.
+     * @param upcasterChain                Allows older revisions of serialized objects to be deserialized.
+     * @param persistenceExceptionResolver Detects concurrency exceptions from the backing database.
+     * @param connectionProvider           The provider of connections to the underlying database
+     * @param transactionManager           The transaction manager used to set the isolation level of the transaction
+     *                                     when loading events
      */
-    public JdbcEventStorageEngine(ConnectionProvider connectionProvider, TransactionManager transactionManager) {
-        this(null, null, null, transactionManager, null, connectionProvider, byte[].class, new EventSchema());
+    public JdbcEventStorageEngine(Serializer serializer, EventUpcasterChain upcasterChain,
+                                  PersistenceExceptionResolver persistenceExceptionResolver,
+                                  TransactionManager transactionManager, ConnectionProvider connectionProvider) {
+        this(serializer, upcasterChain, persistenceExceptionResolver, transactionManager, null, connectionProvider,
+             byte[].class, new EventSchema(), null);
     }
 
     /**
@@ -70,17 +83,19 @@ public class JdbcEventStorageEngine extends AbstractJdbcEventStorageEngine {
      *
      * @param serializer                   Used to serialize and deserialize event payload and metadata.
      * @param upcasterChain                Allows older revisions of serialized objects to be deserialized.
-     * @param persistenceExceptionResolver Detects concurrency exceptions from the backing database. If {@code null}
-     *                                     persistence exceptions are not explicitly resolved.
+     * @param persistenceExceptionResolver Detects concurrency exceptions from the backing database.
      * @param connectionProvider           The provider of connections to the underlying database
      * @param transactionManager           The transaction manager used to set the isolation level of the transaction
      *                                     when loading events
+     * @param eventSequencer               Creates tracking tokens for events after they are appended to the event
+     *                                     store.
      */
     public JdbcEventStorageEngine(Serializer serializer, EventUpcasterChain upcasterChain,
                                   PersistenceExceptionResolver persistenceExceptionResolver,
-                                  TransactionManager transactionManager, ConnectionProvider connectionProvider) {
+                                  TransactionManager transactionManager, ConnectionProvider connectionProvider,
+                                  EventSequencer eventSequencer) {
         this(serializer, upcasterChain, persistenceExceptionResolver, transactionManager, null, connectionProvider,
-             byte[].class, new EventSchema());
+             byte[].class, new EventSchema(), eventSequencer);
     }
 
     /**
@@ -88,8 +103,7 @@ public class JdbcEventStorageEngine extends AbstractJdbcEventStorageEngine {
      *
      * @param serializer                   Used to serialize and deserialize event payload and metadata.
      * @param upcasterChain                Allows older revisions of serialized objects to be deserialized.
-     * @param persistenceExceptionResolver Detects concurrency exceptions from the backing database. If {@code null}
-     *                                     persistence exceptions are not explicitly resolved.
+     * @param persistenceExceptionResolver Detects concurrency exceptions from the backing database.
      * @param transactionManager           The transaction manager used to set the isolation level of the transaction
      *                                     when loading events
      * @param batchSize                    The number of events that should be read at each database access. When more
@@ -100,13 +114,16 @@ public class JdbcEventStorageEngine extends AbstractJdbcEventStorageEngine {
      * @param connectionProvider           The provider of connections to the underlying database
      * @param dataType                     The data type for serialized event payload and metadata
      * @param schema                       Object that describes the database schema of event entries
+     * @param eventSequencer               Creates tracking tokens for events after they are appended to the event
+     *                                     store.
      */
     public JdbcEventStorageEngine(Serializer serializer, EventUpcasterChain upcasterChain,
                                   PersistenceExceptionResolver persistenceExceptionResolver,
                                   TransactionManager transactionManager, Integer batchSize,
-                                  ConnectionProvider connectionProvider, Class<?> dataType, EventSchema schema) {
+                                  ConnectionProvider connectionProvider, Class<?> dataType, EventSchema schema,
+                                  EventSequencer eventSequencer) {
         super(serializer, upcasterChain, persistenceExceptionResolver, transactionManager, batchSize,
-              connectionProvider);
+              connectionProvider, eventSequencer);
         this.dataType = dataType;
         this.schema = schema;
     }
@@ -122,21 +139,9 @@ public class JdbcEventStorageEngine extends AbstractJdbcEventStorageEngine {
     @Override
     public PreparedStatement appendEvent(Connection connection, DomainEventMessage<?> event,
                                          Serializer serializer) throws SQLException {
-        return insertEvent(connection, schema.domainEventTable(), event, serializer);
-    }
-
-    @Override
-    public PreparedStatement appendSnapshot(Connection connection, DomainEventMessage<?> snapshot,
-                                            Serializer serializer) throws SQLException {
-        return insertEvent(connection, schema.snapshotTable(), snapshot, serializer);
-    }
-
-    @SuppressWarnings("SqlInsertValues")
-    protected PreparedStatement insertEvent(Connection connection, String table, DomainEventMessage<?> event,
-                                            Serializer serializer) throws SQLException {
         SerializedObject<?> payload = serializer.serialize(event.getPayload(), dataType);
         SerializedObject<?> metaData = serializer.serialize(event.getMetaData(), dataType);
-        final String sql = "INSERT INTO " + table + " (" +
+        final String sql = "INSERT INTO " + schema.domainEventTable() + " (" +
                 String.join(", ", schema.trackingTokenColumn(), schema.eventIdentifierColumn(),
                             schema.aggregateIdentifierColumn(), schema.sequenceNumberColumn(), schema.typeColumn(),
                             schema.timestampColumn(), schema.payloadTypeColumn(), schema.payloadRevisionColumn(),
@@ -153,6 +158,84 @@ public class JdbcEventStorageEngine extends AbstractJdbcEventStorageEngine {
         preparedStatement.setObject(9, payload.getData());
         preparedStatement.setObject(10, metaData.getData());
         return preparedStatement;
+    }
+
+    @Override
+    public PreparedStatement appendSnapshot(Connection connection, DomainEventMessage<?> snapshot,
+                                            Serializer serializer) throws SQLException {
+        SerializedObject<?> payload = serializer.serialize(snapshot.getPayload(), dataType);
+        SerializedObject<?> metaData = serializer.serialize(snapshot.getMetaData(), dataType);
+        final String sql = "INSERT INTO " + schema.snapshotTable() + " (" +
+                String.join(", ", schema.eventIdentifierColumn(), schema.aggregateIdentifierColumn(),
+                            schema.sequenceNumberColumn(), schema.typeColumn(), schema.timestampColumn(),
+                            schema.payloadTypeColumn(), schema.payloadRevisionColumn(), schema.payloadColumn(),
+                            schema.metaDataColumn()) + ") VALUES (?,?,?,?,?,?,?,?,?)";
+        PreparedStatement preparedStatement = connection.prepareStatement(sql); // NOSONAR
+        preparedStatement.setString(1, snapshot.getIdentifier());
+        preparedStatement.setString(2, snapshot.getAggregateIdentifier());
+        preparedStatement.setLong(3, snapshot.getSequenceNumber());
+        preparedStatement.setString(4, snapshot.getType());
+        writeTimestamp(preparedStatement, 5, snapshot.getTimestamp());
+        preparedStatement.setString(6, payload.getType().getName());
+        preparedStatement.setString(7, payload.getType().getRevision());
+        preparedStatement.setObject(8, payload.getData());
+        preparedStatement.setObject(9, metaData.getData());
+        return preparedStatement;
+    }
+
+    @Override
+    protected List<?> getUnsequencedEventIds() {
+        return executeQuery(connection -> {
+            final String sql =
+                    "SELECT " + schema.globalIndexColumn() + " FROM " + schema.domainEventTable() + " WHERE " +
+                            schema.trackingTokenColumn() + " < 0 ORDER BY " + schema.globalIndexColumn() + " ASC";
+            return connection.prepareStatement(sql);
+        }, resultSet -> resultSet.getLong(1), e -> new EventStoreException(
+                "Failed to get identifiers of event entries that are missing a tracking token", e));
+    }
+
+    @Override
+    protected Supplier<TrackingToken> trackingTokenSupplier() {
+        Optional<Long> highestToken = executeQuery(connection -> {
+            final String sql =
+                    "SELECT MAX(" + schema.trackingTokenColumn() + ") FROM " + schema.domainEventTable() + " WHERE " +
+                            schema.trackingTokenColumn() + " >= 0";
+            return connection.prepareStatement(sql);
+        }, resultSet -> resultSet.getLong(1), e -> new EventStoreException(
+                "Failed to get the highest tracking token of stored event entries", e)).stream()
+                .filter(Objects::nonNull).findFirst();
+        DefaultTrackingToken first = highestToken.map(DefaultTrackingToken::new).map(DefaultTrackingToken::next)
+                .orElse(new DefaultTrackingToken(0L));
+        return new Supplier<TrackingToken>() {
+            private DefaultTrackingToken last;
+
+            @Override
+            public TrackingToken get() {
+                return last = (last == null ? first : last.next());
+            }
+        };
+    }
+
+    @Override
+    protected void updateTrackingToken(Object eventId, TrackingToken nextTrackingToken) {
+        executeUpdates(e -> {
+            if (persistenceExceptionResolver() != null && persistenceExceptionResolver().isDuplicateKeyViolation(e)) {
+                throw new ConcurrencyException(String.format(
+                        "Failed to update event [%s] with tracking token [%s]. " + "Tracking token is already in use.",
+                        eventId, nextTrackingToken), e);
+            }
+            throw new EventStoreException(
+                    String.format("Failed to update event [%s] with tracking token [%s].", eventId, nextTrackingToken),
+                    e);
+        }, connection -> {
+            String sql =
+                    "UPDATE " + schema.domainEventTable() + " SET " + schema.trackingTokenColumn() + " = ? WHERE " +
+                            schema.globalIndexColumn() + " = ?";
+            PreparedStatement preparedStatement = connection.prepareStatement(sql);
+            preparedStatement.setLong(1, ((DefaultTrackingToken) nextTrackingToken).getIndex());
+            preparedStatement.setLong(2, (Long) eventId);
+            return preparedStatement;
+        });
     }
 
     @Override
@@ -279,5 +362,9 @@ public class JdbcEventStorageEngine extends AbstractJdbcEventStorageEngine {
 
     protected EventSchema schema() {
         return schema;
+    }
+
+    protected Class<?> dataType() {
+        return dataType;
     }
 }

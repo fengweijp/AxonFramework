@@ -18,15 +18,17 @@ import org.axonframework.messaging.unitofwork.UnitOfWork;
 import java.util.function.Function;
 
 /**
+ * Event sequencer implementation that does nothing.
+ *
  * @author Rene de Waele
  */
-public enum DirectEventSequencer implements EventSequencer {
+public enum NoOpEventSequencer implements EventSequencer {
 
     INSTANCE;
 
     @Override
     public void updateSequence(Function<UnitOfWork<?>, Boolean> updateFunction) {
-        updateFunction.apply(null);
+        //no op
     }
 
     @Override

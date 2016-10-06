@@ -30,6 +30,7 @@ public class DefaultEventSequencer implements EventSequencer {
 
     private final ThreadFactory threadFactory;
     private final AtomicBoolean updatingTrackingToken = new AtomicBoolean();
+    private volatile boolean shuttingDown;
 
     public DefaultEventSequencer() {
         this(new AxonThreadFactory(THREAD_GROUP));
@@ -48,7 +49,7 @@ public class DefaultEventSequencer implements EventSequencer {
 
     protected void doUpdateSequence(UnitOfWork<?> unitOfWork, Function<UnitOfWork<?>, Boolean> updateFunction) {
         threadFactory.newThread(() -> {
-            while (updatingTrackingToken.compareAndSet(false, true)) {
+            while (updatingTrackingToken.compareAndSet(false, true) && !shuttingDown) {
                 try {
                     if (!updateFunction.apply(unitOfWork)) {
                         break;
@@ -58,5 +59,10 @@ public class DefaultEventSequencer implements EventSequencer {
                 }
             }
         }).start();
+    }
+
+    @Override
+    public void shutDown() {
+        shuttingDown = true;
     }
 }

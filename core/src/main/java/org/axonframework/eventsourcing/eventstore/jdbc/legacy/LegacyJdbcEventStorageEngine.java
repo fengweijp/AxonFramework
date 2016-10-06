@@ -19,16 +19,18 @@ package org.axonframework.eventsourcing.eventstore.jdbc.legacy;
 import org.axonframework.common.Assert;
 import org.axonframework.common.jdbc.ConnectionProvider;
 import org.axonframework.common.jdbc.PersistenceExceptionResolver;
-import org.axonframework.common.transaction.TransactionManager;
+import org.axonframework.common.transaction.NoTransactionManager;
+import org.axonframework.eventsourcing.DomainEventMessage;
+import org.axonframework.eventsourcing.eventstore.NoOpEventSequencer;
 import org.axonframework.eventsourcing.eventstore.TrackedEventData;
 import org.axonframework.eventsourcing.eventstore.TrackingToken;
 import org.axonframework.eventsourcing.eventstore.jdbc.EventSchema;
 import org.axonframework.eventsourcing.eventstore.jdbc.JdbcEventStorageEngine;
 import org.axonframework.eventsourcing.eventstore.legacy.GenericLegacyDomainEventEntry;
 import org.axonframework.eventsourcing.eventstore.legacy.LegacyTrackingToken;
+import org.axonframework.serialization.SerializedObject;
 import org.axonframework.serialization.Serializer;
 import org.axonframework.serialization.upcasting.event.EventUpcasterChain;
-import org.axonframework.serialization.xml.XStreamSerializer;
 
 import java.sql.Connection;
 import java.sql.PreparedStatement;
@@ -50,20 +52,6 @@ public class LegacyJdbcEventStorageEngine extends JdbcEventStorageEngine {
 
     /**
      * Initializes an EventStorageEngine that uses JDBC to store and load events using the default {@link EventSchema}.
-     * The payload and metadata of events is stored as a serialized blob of bytes using a new {@link XStreamSerializer}.
-     * <p>
-     * Events are read in batches of 100. No upcasting is performed after the events have been fetched.
-     *
-     * @param connectionProvider The provider of connections to the underlying database
-     * @param transactionManager The transaction manager used to set the isolation level of the transaction when loading
-     *                           events
-     */
-    public LegacyJdbcEventStorageEngine(ConnectionProvider connectionProvider, TransactionManager transactionManager) {
-        super(connectionProvider, transactionManager);
-    }
-
-    /**
-     * Initializes an EventStorageEngine that uses JDBC to store and load events using the default {@link EventSchema}.
      * The payload and metadata of events is stored as a serialized blob of bytes using the given {@code serializer}.
      * <p>
      * Events are read in batches of 100. The given {@code upcasterChain} is used to upcast events before
@@ -74,13 +62,12 @@ public class LegacyJdbcEventStorageEngine extends JdbcEventStorageEngine {
      * @param persistenceExceptionResolver Detects concurrency exceptions from the backing database. If {@code null}
      *                                     persistence exceptions are not explicitly resolved.
      * @param connectionProvider           The provider of connections to the underlying database
-     * @param transactionManager           The transaction manager used to set the isolation level of the transaction
-     *                                     when loading events
      */
     public LegacyJdbcEventStorageEngine(Serializer serializer, EventUpcasterChain upcasterChain,
                                         PersistenceExceptionResolver persistenceExceptionResolver,
-                                        TransactionManager transactionManager, ConnectionProvider connectionProvider) {
-        super(serializer, upcasterChain, persistenceExceptionResolver, transactionManager, connectionProvider);
+                                        ConnectionProvider connectionProvider) {
+        super(serializer, upcasterChain, persistenceExceptionResolver, NoTransactionManager.INSTANCE,
+              connectionProvider, NoOpEventSequencer.INSTANCE);
     }
 
     /**
@@ -90,8 +77,6 @@ public class LegacyJdbcEventStorageEngine extends JdbcEventStorageEngine {
      * @param upcasterChain                Allows older revisions of serialized objects to be deserialized.
      * @param persistenceExceptionResolver Detects concurrency exceptions from the backing database. If {@code null}
      *                                     persistence exceptions are not explicitly resolved.
-     * @param transactionManager           The transaction manager used to set the isolation level of the transaction
-     *                                     when loading events
      * @param batchSize                    The number of events that should be read at each database access. When more
      *                                     than this number of events must be read to rebuild an aggregate's state, the
      *                                     events are read in batches of this size. Tip: if you use a snapshotter, make
@@ -102,13 +87,40 @@ public class LegacyJdbcEventStorageEngine extends JdbcEventStorageEngine {
      * @param schema                       Object that describes the database schema of event entries
      */
     public LegacyJdbcEventStorageEngine(Serializer serializer, EventUpcasterChain upcasterChain,
-                                        PersistenceExceptionResolver persistenceExceptionResolver,
-                                        TransactionManager transactionManager, Integer batchSize,
+                                        PersistenceExceptionResolver persistenceExceptionResolver, Integer batchSize,
                                         ConnectionProvider connectionProvider, Class<?> dataType, EventSchema schema) {
-        super(serializer, upcasterChain, persistenceExceptionResolver, transactionManager, batchSize,
-              connectionProvider, dataType, schema);
+        super(serializer, upcasterChain, persistenceExceptionResolver, NoTransactionManager.INSTANCE, batchSize,
+              connectionProvider, dataType, schema, NoOpEventSequencer.INSTANCE);
     }
 
+    @Override
+    public PreparedStatement appendEvent(Connection connection, DomainEventMessage<?> event,
+                                         Serializer serializer) throws SQLException {
+        SerializedObject<?> payload = serializer.serialize(event.getPayload(), dataType());
+        SerializedObject<?> metaData = serializer.serialize(event.getMetaData(), dataType());
+        final String sql = "INSERT INTO " + schema().domainEventTable() + " (" +
+                String.join(", ", schema().eventIdentifierColumn(),
+                            schema().aggregateIdentifierColumn(), schema().sequenceNumberColumn(), schema().typeColumn(),
+                            schema().timestampColumn(), schema().payloadTypeColumn(), schema().payloadRevisionColumn(),
+                            schema().payloadColumn(), schema().metaDataColumn()) + ") VALUES (?,?,?,?,?,?,?,?,?)";
+        PreparedStatement preparedStatement = connection.prepareStatement(sql); // NOSONAR
+        preparedStatement.setString(1, event.getIdentifier());
+        preparedStatement.setString(2, event.getAggregateIdentifier());
+        preparedStatement.setLong(3, event.getSequenceNumber());
+        preparedStatement.setString(4, event.getType());
+        writeTimestamp(preparedStatement, 5, event.getTimestamp());
+        preparedStatement.setString(6, payload.getType().getName());
+        preparedStatement.setString(7, payload.getType().getRevision());
+        preparedStatement.setObject(8, payload.getData());
+        preparedStatement.setObject(9, metaData.getData());
+        return preparedStatement;
+    }
+
+    /**
+     * {@inheritDoc}
+     * <p>
+     * Event tracking is supported. However, note that the order of events depends
+     */
     @Override
     public PreparedStatement readEventData(Connection connection, TrackingToken lastToken) throws SQLException {
         Assert.isTrue(lastToken == null || lastToken instanceof LegacyTrackingToken,
