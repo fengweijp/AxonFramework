@@ -54,7 +54,7 @@ public abstract class AbstractTrackedDomainEventEntry<T> extends AbstractDomainE
     public AbstractTrackedDomainEventEntry(DomainEventMessage<?> eventMessage, Serializer serializer,
                                            Class<T> contentType) {
         super(eventMessage, serializer, contentType);
-        trackingToken = Math.negateExact(random.nextInt(Integer.MAX_VALUE));
+        trackingToken = -Math.abs(random.nextLong());
     }
 
     /**

@@ -55,6 +55,23 @@ public class JdbcEventStorageEngine extends AbstractJdbcEventStorageEngine {
      * Initializes an EventStorageEngine that uses JDBC to store and load events using the default {@link EventSchema}.
      * The payload and metadata of events is stored as a serialized blob of bytes using the given {@code serializer}.
      * <p>
+     * Events are read in batches of 100. A new {@link org.axonframework.serialization.xml.XStreamSerializer} is used to
+     * serialize event payload and metadata. No upcasting is performed on stored events. A {@link DefaultEventSequencer}
+     * is used to supply even entries with tracking tokens. A new {@link JdbcSQLErrorCodesResolver} is used to resolve
+     * persistence conflicts.
+     *
+     * @param connectionProvider The provider of connections to the underlying database
+     * @param transactionManager The transaction manager used to set the isolation level of the transaction when loading
+     *                           events
+     */
+    public JdbcEventStorageEngine(TransactionManager transactionManager, ConnectionProvider connectionProvider) {
+        this(null, null, null, transactionManager, null, connectionProvider, byte[].class, new EventSchema(), null);
+    }
+
+    /**
+     * Initializes an EventStorageEngine that uses JDBC to store and load events using the default {@link EventSchema}.
+     * The payload and metadata of events is stored as a serialized blob of bytes using the given {@code serializer}.
+     * <p>
      * Events are read in batches of 100. The given {@code upcasterChain} is used to upcast events before
      * deserialization.
      * <p>
@@ -147,7 +164,7 @@ public class JdbcEventStorageEngine extends AbstractJdbcEventStorageEngine {
                             schema.timestampColumn(), schema.payloadTypeColumn(), schema.payloadRevisionColumn(),
                             schema.payloadColumn(), schema.metaDataColumn()) + ") VALUES (?,?,?,?,?,?,?,?,?,?)";
         PreparedStatement preparedStatement = connection.prepareStatement(sql); // NOSONAR
-        preparedStatement.setLong(1, Math.negateExact(random.nextInt(Integer.MAX_VALUE)));
+        preparedStatement.setLong(1, -Math.abs(random.nextLong()));
         preparedStatement.setString(2, event.getIdentifier());
         preparedStatement.setString(3, event.getAggregateIdentifier());
         preparedStatement.setLong(4, event.getSequenceNumber());
@@ -189,7 +206,9 @@ public class JdbcEventStorageEngine extends AbstractJdbcEventStorageEngine {
             final String sql =
                     "SELECT " + schema.globalIndexColumn() + " FROM " + schema.domainEventTable() + " WHERE " +
                             schema.trackingTokenColumn() + " < 0 ORDER BY " + schema.globalIndexColumn() + " ASC";
-            return connection.prepareStatement(sql);
+            PreparedStatement preparedStatement = connection.prepareStatement(sql);
+            preparedStatement.setMaxRows(1000);
+            return preparedStatement;
         }, resultSet -> resultSet.getLong(1), e -> new EventStoreException(
                 "Failed to get identifiers of event entries that are missing a tracking token", e));
     }

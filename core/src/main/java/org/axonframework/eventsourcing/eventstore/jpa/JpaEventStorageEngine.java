@@ -50,6 +50,26 @@ public class JpaEventStorageEngine extends SequencingEventStorageEngine {
      * <p>
      * Events are fetched in batches of 100. A {@link DefaultEventSequencer} is used to supply even entries with
      * tracking tokens. A {@link SQLErrorCodesResolver} is used to resolve concurrency exceptions while appending
+     * events. A new {@link org.axonframework.serialization.xml.XStreamSerializer} is used to serialize event payload
+     * and metadata. No upcasting is performed on stored events.
+     *
+     * @param dataSource            Allows the EventStore to detect the database type and define the error codes that
+     *                              represent concurrent access failures for most database types.
+     * @param transactionManager    The transaction manager used when updating events with missing tracking tokens.
+     * @param entityManagerProvider Provider for the {@link EntityManager} used by this EventStorageEngine.
+     * @throws SQLException If the database product name can not be determined from the given {@code dataSource}
+     */
+    public JpaEventStorageEngine(DataSource dataSource, TransactionManager transactionManager,
+                                 EntityManagerProvider entityManagerProvider) throws SQLException {
+        this(null, null, new SQLErrorCodesResolver(dataSource), transactionManager, null,
+             entityManagerProvider, null);
+    }
+
+    /**
+     * Initializes an EventStorageEngine that uses JPA to store and load events.
+     * <p>
+     * Events are fetched in batches of 100. A {@link DefaultEventSequencer} is used to supply even entries with
+     * tracking tokens. A {@link SQLErrorCodesResolver} is used to resolve concurrency exceptions while appending
      * events.
      *
      * @param serializer            Used to serialize and deserialize event payload and metadata.
@@ -205,7 +225,7 @@ public class JpaEventStorageEngine extends SequencingEventStorageEngine {
     protected List<?> getUnsequencedEventIds() {
         return entityManager().createQuery("SELECT e.globalIndex " + "FROM " + domainEventEntryEntityName() + " e " +
                                                    "WHERE e.trackingToken < 0 ORDER BY e.globalIndex ASC")
-                .getResultList();
+                .setMaxResults(1000).getResultList();
     }
 
     @Override
