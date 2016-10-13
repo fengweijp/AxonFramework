@@ -15,7 +15,6 @@ package org.axonframework.eventsourcing.eventstore;
 
 import org.axonframework.commandhandling.model.ConcurrencyException;
 import org.axonframework.common.jdbc.PersistenceExceptionResolver;
-import org.axonframework.common.transaction.Transaction;
 import org.axonframework.common.transaction.TransactionManager;
 import org.axonframework.eventhandling.EventMessage;
 import org.axonframework.serialization.Serializer;
@@ -105,16 +104,16 @@ public abstract class SequencingEventStorageEngine extends BatchingEventStorageE
             return false;
         }
         Supplier<TrackingToken> trackingTokenSupplier = trackingTokenSupplier();
-        Transaction transaction = transactionManager.startTransaction();
+//        Transaction transaction = transactionManager.startTransaction();
         try {
             for (Object eventId : unsequencedEventIds) {
                 updateTrackingToken(eventId, trackingTokenSupplier.get());
             }
         } catch (ConcurrencyException e) {
-            transaction.rollback();
+//            transaction.rollback();
             return true;
         }
-        transaction.commit();
+//        transaction.commit();
         return true;
     }
 
